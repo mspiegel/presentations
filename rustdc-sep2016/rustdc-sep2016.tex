@@ -1,0 +1,241 @@
+\documentclass{beamer}
+\usetheme{metropolis}
+\usecolortheme{owl}
+\title{Who is more foolish?}
+\subtitle{Novice traps in Rust}
+\author{Michael Spiegel}
+\date{September 29, 2016}
+\begin{document}
+
+\begin{frame}
+\titlepage
+\end{frame}
+
+\begin{frame}
+When I first started learning Rust I started implementing different search trees.
+Here are some of the pitfalls I ran into. Hopefully my experience will help you.
+
+{\color{blue} \url{https://www.youtube.com/watch?v=x0ow4X8tiMI}}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{In the Beginning: Pain}
+\begin{verbatim}
+struct Node {
+  key: i32,
+  val: i32,
+  color: Color,
+  left: Option<Box<Node>>,
+  right: Option<Box<Node>>,
+}
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[t,fragile]
+\frametitle{1st Attempt: Type Alias}
+The type keyword lets you declare an alias of another type. The alias does not declare a new type.
+\begin{verbatim}
+type Link = Option<Box<Node>>;
+
+impl fmt::Display for Link {
+  ... 
+}
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[t,fragile]
+\frametitle{1st Attempt: Type Alias}
+The type keyword lets you declare an alias of another type. The alias does not declare a new type.
+\begin{verbatim}
+type Link = Option<Box<Node>>;
+
+impl fmt::Display for Link {
+  ... 
+}
+\end{verbatim}
+{\scriptsize \texttt{{\color{red} error}: the impl does not reference any types defined in this crate; only traits defined in the current crate can be implemented for arbitrary types [E0117]}}
+\end{frame}
+
+\begin{frame}[t,fragile]
+\frametitle{2nd Attempt: Newtype Pattern}
+The tuple struct is a hybrid between a tuple and a struct. A 1-dimensional tuple struct is called the `newtype' pattern.
+\begin{verbatim}
+ struct Link(Option<Box<Node>>);
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[t,fragile]
+\frametitle{2nd Attempt: Newtype Pattern}
+The tuple struct is a hybrid between a tuple and a struct. A 1-dimensional tuple struct is called the `newtype' pattern.
+\begin{verbatim}
+ struct Link(Option<Box<Node>>);
+\end{verbatim}
+The ownership semantics are 2x as complicated. Am I borrowing the tuple or the value inside the tuple? Reddit thread just on this topic {\color{blue} \url{https://www.reddit.com/r/rust/comments/2cmjfn/how_to_do_typedefsnewtypes}}
+\end{frame}
+
+\begin{frame}[t,fragile]
+\frametitle{3rd Attempt: Wrapper struct}
+The dumbest solution is to wrap the type inside a struct.
+\begin{verbatim}
+struct Link {
+  link: Option<Box<Node>>,
+}
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[t,fragile]
+\frametitle{3rd Attempt: Wrapper struct}
+The dumbest solution is to wrap the type inside a struct.
+\begin{verbatim}
+struct Link {
+  link: Option<Box<Node>>,
+}
+\end{verbatim}
+This works but the code is cluttered with ``.link" everywhere. The code is harder to understand.
+\end{frame}
+
+\begin{frame}
+\frametitle{Reboot}
+So what is the idiomatic way to express this type?
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Vanilla Rust}
+\begin{verbatim}
+struct Node {
+  key: i32,
+  val: i32,
+  color: Color,
+  left: Option<Box<Node>>,
+  right: Option<Box<Node>>,
+}
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Use Traits}
+\begin{verbatim}
+trait OptionBoxNode {
+  fn get(&self, key: i32) -> Option<i32>;
+  fn is_red(&self) -> bool;
+  fn color(&self) -> Color;
+}
+
+impl OptionBoxNode for Option<Box<Node>> {
+  ...
+}
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Escape Hatch}
+Newtype when necessary.
+\begin{verbatim}
+struct Link<'a>(&'a Option<Box<Node>>)
+
+impl<'a> fmt::Display for Link<'a> {
+  ...
+}
+\end{verbatim}
+\end{frame}
+
+\begin{frame}
+\frametitle{Pro Tips}
+The following idioms are helpful...
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Multiple impl sections}
+Declare impls for both the definite type and the optional type. Write functions in the appropriate section depending on whether it manipulates a node or a ``nullable" node.
+\begin{verbatim}
+impl Node {
+  ...
+}
+
+impl OptionBoxNode for Option<Box<Node>> {
+  ...
+}
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Helper functions everywhere}
+\begin{verbatim}
+impl OptionBoxNode for Option<Box<Node>> {
+
+fn reference(&self) -> &Box<Node>
+  {  self.as_ref().unwrap()  }
+
+fn mutate(&mut self) -> &mut Box<Node>
+  {  self.as_mut().unwrap() }
+
+fn left(&self) -> &Option<Box<Node>>
+  { &self.as_ref().unwrap().left }
+  
+}
+\end{verbatim}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Beware the let ref}
+4 ways to declare a variable.
+\begin{columns}
+\begin{column}{0.5\textwidth}
+\begin{itemize}
+\item \verb#let x : i32#
+\item \verb#let mut x : i32#
+\item \verb#let ref x : i32#
+\item \verb#let mut ref x : i32#
+\end{itemize}
+\end{column}
+\begin{column}{0.5\textwidth}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}[fragile]
+\frametitle{Beware the let ref}
+2 sane ways to declare a variable.
+\begin{columns}
+\begin{column}{0.5\textwidth}
+\begin{itemize}
+\item \verb#let x : i32;#
+\item \verb#let mut x : i32;#
+\item {\color{red} \verb#let ref x : i32;#}
+\item {\color{red} \verb#let mut ref x : i32;#}
+\end{itemize}
+\end{column}
+\begin{column}{0.5\textwidth}
+\begin{itemize}
+\item \verb#let x : i32;#
+\item \verb#let mut x : i32;#
+\item \verb#let x : &i32;#
+\item \verb#let mut x : &i32;#
+\end{itemize}
+\end{column}
+\end{columns}
+\end{frame}
+
+\begin{frame}
+\frametitle{Bonus content: RustConf 2016}
+RustConf was on September 10 in Portland OR.
+\begin{itemize}
+\item Slides and exercises from the tutorials \url{http://rust-tutorials.com/RustConf16}
+\item Opening keynote. ``Fast, reliable, productive" -- Pick three
+\item Josh Triplett on the RFC process
+\item If you use Rust commercially, community-team@rust-lang.org wants your feedback
+\end{itemize}
+Rustbelt Rust coming up October 27-28 in Pittsburg PA.
+\end{frame}
+
+\begin{frame}
+\frametitle{Putting everything together}
+\begin{itemize}
+\item \url{https://github.com/mspiegel/rust-yaar}
+\item \url{https://github.com/rust-lang-nursery/rustup.rs}
+\item \url{https://github.com/rust-lang-nursery/rustfmt}
+\item \url{https://github.com/Manishearth/rust-clippy}
+\end{itemize}
+\end{frame}
+
+\end{document}
